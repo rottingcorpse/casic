@@ -85,8 +85,10 @@ export default function AdminPage() {
   const [newPassword, setNewPassword] = useState("");
   const [newRole, setNewRole] = useState<UserRole>("dealer");
   const [newTableId, setNewTableId] = useState<number | null>(null);
-  const [newActive, setNewActive] = useState(true);
   const [newHourlyRate, setNewHourlyRate] = useState<string>("");
+
+  // ------- Delete confirmation dialog -------
+  const [deleteConfirmUserId, setDeleteConfirmUserId] = useState<number | null>(null);
 
   // ------- Purchases controls -------
   const [purchaseLimit, setPurchaseLimit] = useState<number>(100);
@@ -94,7 +96,6 @@ export default function AdminPage() {
   // ------- Per-user edit drafts -------
   const [draftRole, setDraftRole] = useState<Record<number, UserRole>>({});
   const [draftTableId, setDraftTableId] = useState<Record<number, number | null>>({});
-  const [draftActive, setDraftActive] = useState<Record<number, boolean>>({});
   const [draftPassword, setDraftPassword] = useState<Record<number, string>>(
     {}
   );
@@ -119,19 +120,16 @@ export default function AdminPage() {
   function normalizeUserDrafts(list: User[]) {
     const r: Record<number, UserRole> = {};
     const t: Record<number, number | null> = {};
-    const a: Record<number, boolean> = {};
     const p: Record<number, string> = {};
     const h: Record<number, string> = {};
     for (const u of list) {
       r[u.id] = u.role;
       t[u.id] = u.table_id;
-      a[u.id] = !!u.is_active;
       p[u.id] = "";
       h[u.id] = u.hourly_rate !== null ? String(u.hourly_rate) : "";
     }
     setDraftRole(r);
     setDraftTableId(t);
-    setDraftActive(a);
     setDraftPassword(p);
     setDraftHourlyRate(h);
   }
@@ -281,7 +279,7 @@ export default function AdminPage() {
           password,
           role,
           table_id,
-          is_active: !!newActive,
+          is_active: true,
           hourly_rate,
         }),
       });
@@ -290,7 +288,6 @@ export default function AdminPage() {
       setNewPassword("");
       setNewRole("dealer");
       setNewTableId(null);
-      setNewActive(true);
       setNewHourlyRate("");
 
       await loadUsersOnly();
@@ -307,13 +304,11 @@ export default function AdminPage() {
 
     const role = draftRole[userId];
     const table_id = role === "table_admin" ? draftTableId[userId] : null;
-    const is_active = !!draftActive[userId];
     const password = String(draftPassword[userId] ?? "");
     const hourlyRateStr = draftHourlyRate[userId] ?? "";
 
     const body: Record<string, unknown> = {
       role,
-      is_active,
     };
 
     if (role === "table_admin" && table_id !== undefined) {
@@ -351,6 +346,24 @@ export default function AdminPage() {
 
   function setRoleForUser(userId: number, role: UserRole) {
     setDraftRole((prev) => ({ ...prev, [userId]: role }));
+  }
+
+  async function deleteUser(userId: number) {
+    clearNotices();
+    setBusy(true);
+    try {
+      await apiJson<User>("/api/admin/users/" + userId, {
+        method: "PUT",
+        body: JSON.stringify({ is_active: false }),
+      });
+      setDeleteConfirmUserId(null);
+      await loadUsersOnly();
+      showOk("Пользователь удалён");
+    } catch (e: any) {
+      setError(e?.message ?? "Ошибка удаления пользователя");
+    } finally {
+      setBusy(false);
+    }
   }
 
   function refreshCurrentTab() {
@@ -590,15 +603,6 @@ export default function AdminPage() {
                   />
                 )}
 
-                <label className="flex items-center gap-2 text-sm text-white/80">
-                  <input
-                    type="checkbox"
-                    checked={newActive}
-                    onChange={(e) => setNewActive(e.target.checked)}
-                  />
-                  Активен
-                </label>
-
                 <button
                   className="rounded-xl bg-green-600 text-white px-4 py-3 font-semibold disabled:opacity-60"
                   onClick={createUser}
@@ -624,21 +628,34 @@ export default function AdminPage() {
                 </div>
               ) : (
                 <div className="grid gap-2">
-                  {users.map((u) => {
-                    const role = draftRole[u.id] ?? u.role;
-                    const tableId = draftTableId[u.id] ?? u.table_id;
-                    const active = draftActive[u.id] ?? u.is_active;
-                    const pwd = draftPassword[u.id] ?? "";
-                    const hourlyRate = draftHourlyRate[u.id] ?? (u.hourly_rate !== null ? String(u.hourly_rate) : "");
-                    const table = tableId !== null ? tablesById.get(tableId) : null;
+                  {(() => {
+                    const activeUsers = users.filter((u) => u.is_active);
+                    const inactiveUsers = users.filter((u) => !u.is_active);
+                    const sortedUsers = [...activeUsers, ...inactiveUsers];
 
-                    return (
-                      <div
-                        key={u.id}
-                        className="rounded-xl bg-black text-white px-4 py-3"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
+                    return sortedUsers.map((u, idx) => {
+                      const role = draftRole[u.id] ?? u.role;
+                      const tableId = draftTableId[u.id] ?? u.table_id;
+                      const pwd = draftPassword[u.id] ?? "";
+                      const hourlyRate = draftHourlyRate[u.id] ?? (u.hourly_rate !== null ? String(u.hourly_rate) : "");
+                      const table = tableId !== null ? tablesById.get(tableId) : null;
+                      const showSeparator = idx === activeUsers.length && inactiveUsers.length > 0;
+
+                      return (
+                        <div key={u.id}>
+                          {showSeparator && (
+                            <div className="flex items-center gap-3 my-3">
+                              <div className="flex-1 h-px bg-zinc-700" />
+                              <span className="text-xs text-zinc-500">Удалённые</span>
+                              <div className="flex-1 h-px bg-zinc-700" />
+                            </div>
+                          )}
+                          <div
+                            className={
+                              "rounded-xl text-white px-4 py-3 " +
+                              (u.is_active ? "bg-black" : "bg-black/50 opacity-70")
+                            }
+                          >
                             <div className="font-semibold">
                               {u.username}{" "}
                               <span className="text-xs text-white/60">
@@ -653,124 +670,140 @@ export default function AdminPage() {
                                 </span>
                               )}
                             </div>
-                          </div>
 
-                          <div
-                            className={
-                              "text-xs px-2 py-1 rounded-lg " +
-                              (u.is_active
-                                ? "bg-green-600/20 text-green-200"
-                                : "bg-red-600/20 text-red-200")
-                            }
-                          >
-                            {u.is_active ? "active" : "inactive"}
-                          </div>
-                        </div>
+                            <div className="grid gap-2 mt-3">
+                              <select
+                                className={selectDark}
+                                value={role}
+                                onChange={(e) =>
+                                  setRoleForUser(u.id, e.target.value as UserRole)
+                                }
+                                disabled={busy}
+                              >
+                                <option value="dealer">Дилер</option>
+                                <option value="table_admin">Админ стола</option>
+                                <option value="waiter">Официант</option>
+                                <option value="superadmin">Суперадмин</option>
+                              </select>
 
-                        <div className="grid gap-2 mt-3">
-                          <select
-                            className={selectDark}
-                            value={role}
-                            onChange={(e) =>
-                              setRoleForUser(u.id, e.target.value as UserRole)
-                            }
-                            disabled={busy}
-                          >
-                            <option value="dealer">Дилер</option>
-                            <option value="table_admin">Админ стола</option>
-                            <option value="waiter">Официант</option>
-                            <option value="superadmin">Суперадмин</option>
-                          </select>
+                              {role === "table_admin" && (
+                                <select
+                                  className={selectDark}
+                                  value={tableId ?? ""}
+                                  onChange={(e) => {
+                                    setDraftTableId((prev) => ({
+                                      ...prev,
+                                      [u.id]:
+                                        e.target.value === ""
+                                          ? null
+                                          : Number(e.target.value),
+                                    }));
+                                  }}
+                                  disabled={busy}
+                                >
+                                  <option value="">Выберите стол</option>
+                                  {tables.map((t) => (
+                                    <option key={t.id} value={t.id}>
+                                      {t.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
 
-                          {role === "table_admin" && (
-                            <select
-                              className={selectDark}
-                              value={tableId ?? ""}
-                              onChange={(e) => {
-                                setDraftTableId((prev) => ({
-                                  ...prev,
-                                  [u.id]:
-                                    e.target.value === ""
-                                      ? null
-                                      : Number(e.target.value),
-                                }));
-                              }}
-                              disabled={busy}
-                            >
-                              <option value="">Выберите стол</option>
-                              {tables.map((t) => (
-                                <option key={t.id} value={t.id}>
-                                  {t.name}
-                                </option>
-                              ))}
-                            </select>
-                          )}
+                              {(role === "dealer" || role === "waiter") && (
+                                <input
+                                  type="number"
+                                  value={hourlyRate}
+                                  onChange={(e) =>
+                                    setDraftHourlyRate((prev) => ({
+                                      ...prev,
+                                      [u.id]: e.target.value,
+                                    }))
+                                  }
+                                  className={inputDark}
+                                  placeholder="Ставка в час"
+                                  min={0}
+                                  disabled={busy}
+                                />
+                              )}
 
-                          {(role === "dealer" || role === "waiter") && (
-                            <input
-                              type="number"
-                              value={hourlyRate}
-                              onChange={(e) =>
-                                setDraftHourlyRate((prev) => ({
-                                  ...prev,
-                                  [u.id]: e.target.value,
-                                }))
-                              }
-                              className={inputDark}
-                              placeholder="Ставка в час"
-                              min={0}
-                              disabled={busy}
-                            />
-                          )}
+                              <input
+                                value={pwd}
+                                onChange={(e) =>
+                                  setDraftPassword((prev) => ({
+                                    ...prev,
+                                    [u.id]: e.target.value,
+                                  }))
+                                }
+                                className={inputDark}
+                                placeholder="Новый пароль (если нужно)"
+                                type="password"
+                                disabled={busy}
+                              />
 
-                          <label className="flex items-center gap-2 text-sm text-white/80">
-                            <input
-                              type="checkbox"
-                              checked={!!active}
-                              onChange={(e) =>
-                                setDraftActive((prev) => ({
-                                  ...prev,
-                                  [u.id]: e.target.checked,
-                                }))
-                              }
-                              disabled={busy}
-                            />
-                            Активен
-                          </label>
+                              <div className="flex gap-2">
+                                <button
+                                  className="flex-1 rounded-xl bg-zinc-900 text-white px-4 py-3 font-semibold disabled:opacity-60"
+                                  onClick={() => saveUser(u.id)}
+                                  disabled={busy}
+                                >
+                                  Сохранить изменения
+                                </button>
 
-                          <input
-                            value={pwd}
-                            onChange={(e) =>
-                              setDraftPassword((prev) => ({
-                                ...prev,
-                                [u.id]: e.target.value,
-                              }))
-                            }
-                            className={inputDark}
-                            placeholder="Новый пароль (если нужно)"
-                            type="password"
-                            disabled={busy}
-                          />
-
-                          <button
-                            className="rounded-xl bg-zinc-900 text-white px-4 py-3 font-semibold disabled:opacity-60"
-                            onClick={() => saveUser(u.id)}
-                            disabled={busy}
-                          >
-                            Сохранить изменения
-                          </button>
-
-                          <div className="text-xs text-white/60">
-                            Если пользователь больше не работает — выключите
-                            “Активен” или смените пароль.
+                                {u.is_active && u.role !== "superadmin" && (
+                                  <button
+                                    className="rounded-xl bg-red-600/20 text-red-300 px-4 py-3 font-semibold disabled:opacity-60 hover:bg-red-600/30"
+                                    onClick={() => setDeleteConfirmUserId(u.id)}
+                                    disabled={busy}
+                                    title="Удалить пользователя"
+                                  >
+                                    Удалить
+                                  </button>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    });
+                  })()}
                 </div>
               )}
             </div>
+
+            {/* Delete confirmation dialog */}
+            {deleteConfirmUserId !== null && (
+              <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+                <div className="rounded-xl bg-zinc-900 p-6 max-w-sm w-full mx-4">
+                  <div className="text-white font-semibold text-lg mb-2">
+                    Подтверждение
+                  </div>
+                  <div className="text-white/80 mb-4">
+                    Вы уверены, что хотите удалить пользователя{" "}
+                    <span className="font-semibold">
+                      {users.find((u) => u.id === deleteConfirmUserId)?.username}
+                    </span>
+                    ?
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      className="flex-1 rounded-xl bg-zinc-800 text-white px-4 py-3 font-semibold disabled:opacity-60"
+                      onClick={() => setDeleteConfirmUserId(null)}
+                      disabled={busy}
+                    >
+                      Отмена
+                    </button>
+                    <button
+                      className="flex-1 rounded-xl bg-red-600 text-white px-4 py-3 font-semibold disabled:opacity-60"
+                      onClick={() => deleteUser(deleteConfirmUserId)}
+                      disabled={busy}
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         )}
 
