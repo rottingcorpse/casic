@@ -179,7 +179,8 @@ def get_day_summary(
     staff = db.query(User).filter(User.role.in_(["dealer", "waiter"])).all()
 
     # Calculate totals
-    total_chip_income_cash = 0  # Cash buyins
+    total_chip_income_cash = 0  # Cash buyins (positive only)
+    total_chip_cashout = 0  # Cash cashouts (absolute value, negative amounts)
     total_chip_income_credit = 0  # Credit buyins (expenses)
     total_balance_adjustments_profit = 0  # Positive adjustments
     total_balance_adjustments_expense = 0  # Negative adjustments (absolute value)
@@ -191,6 +192,9 @@ def get_day_summary(
                 total_chip_income_credit += amount
             else:
                 total_chip_income_cash += amount
+        elif amount < 0:  # Cashout (negative amount = expense)
+            # Cashouts are always cash payments back to players
+            total_chip_cashout += abs(amount)  # Track cashouts separately
 
     # Process balance adjustments
     balance_adjustments_list = []
@@ -277,6 +281,7 @@ def get_day_summary(
         "expenses": {
             "salaries": total_salary,
             "buyin_credit": total_chip_income_credit,
+            "cashout": total_chip_cashout,  # Cash paid back to players
             "balance_adjustments": total_balance_adjustments_expense,
         },
         "result": casino_result,
@@ -625,22 +630,31 @@ def _create_purchases_sheet(
 
         amount = int(cast(int, p.amount))
         cell = ws.cell(row=row, column=4, value=amount)
+        # For cashouts (negative), show as expense (red)
+        # For buyins (positive), show as income (green)
         if amount > 0:
             cell.fill = MONEY_POSITIVE_FILL
         elif amount < 0:
             cell.fill = MONEY_NEGATIVE_FILL
 
         # Payment type column
-        payment_type = cast(str, p.payment_type) if p.payment_type else "cash"
-        payment_text = "наличные" if payment_type == "cash" else "кредит"
-        payment_cell = ws.cell(row=row, column=5, value=payment_text)
-        # Apply dark color coding for payment type
-        if payment_type == "cash":
-            payment_cell.fill = CASH_DARK_FILL
-            payment_cell.font = Font(color="FFFFFF", bold=True)
-        else:  # credit
-            payment_cell.fill = CREDIT_DARK_FILL
-            payment_cell.font = Font(color="FFFFFF", bold=True)
+        # For cashouts, show "выдача" (payout) instead of payment type
+        if amount < 0:
+            payment_text = "выдача"
+            payment_cell = ws.cell(row=row, column=5, value=payment_text)
+            payment_cell.fill = MONEY_NEGATIVE_FILL
+            payment_cell.font = Font(bold=True)
+        else:
+            payment_type = cast(str, p.payment_type) if p.payment_type else "cash"
+            payment_text = "наличные" if payment_type == "cash" else "кредит"
+            payment_cell = ws.cell(row=row, column=5, value=payment_text)
+            # Apply dark color coding for payment type
+            if payment_type == "cash":
+                payment_cell.fill = CASH_DARK_FILL
+                payment_cell.font = Font(color="FFFFFF", bold=True)
+            else:  # credit
+                payment_cell.fill = CREDIT_DARK_FILL
+                payment_cell.font = Font(color="FFFFFF", bold=True)
 
         username = cast(str, p.created_by.username) if p.created_by else "—"
         ws.cell(row=row, column=6, value=username)
@@ -785,9 +799,10 @@ def _create_summary_sheet(
     ws = wb.create_sheet(title="Итоги дня")
 
     # Calculate totals
-    total_chip_income_cash = 0  # Cash buyins
+    total_chip_income_cash = 0  # Cash buyins (positive only)
+    total_chip_cashout = 0  # Cash cashouts (absolute value, negative amounts)
     total_chip_income_credit = 0  # Credit buyins (expenses)
-
+    
     for p in purchases:
         amount = int(cast(int, p.amount))
         if amount > 0:  # Buyin
@@ -795,6 +810,9 @@ def _create_summary_sheet(
                 total_chip_income_credit += amount
             else:
                 total_chip_income_cash += amount
+        elif amount < 0:  # Cashout (negative amount = expense)
+            # Cashouts are always cash payments back to players
+            total_chip_cashout += abs(amount)  # Track cashouts separately
 
     # Calculate balance adjustments
     total_balance_adjustments_profit = 0
@@ -870,8 +888,8 @@ def _create_summary_sheet(
     row += 2
 
     # Net result
-    # Casino profit = cash_buyin - player_balance (what players have left) - salary - credit_buyin + adj_profit - adj_expense
-    casino_result = total_chip_income_cash - total_player_balance - total_salary - total_chip_income_credit + total_balance_adjustments_profit - total_balance_adjustments_expense
+    # Casino profit = cash_buyin - cashout - player_balance (what players have left) - salary - credit_buyin + adj_profit - adj_expense
+    casino_result = total_chip_income_cash - total_chip_cashout - total_player_balance - total_salary - total_chip_income_credit + total_balance_adjustments_profit - total_balance_adjustments_expense
 
     ws.cell(row=row, column=1, value="ИТОГО ЗА ДЕНЬ:")
     ws.cell(row=row, column=1).font = Font(bold=True, size=12)
@@ -896,6 +914,13 @@ def _create_summary_sheet(
     ws.cell(row=row, column=2, value=total_chip_income_credit)
     ws.cell(row=row, column=2).fill = CREDIT_DARK_FILL
     ws.cell(row=row, column=2).font = Font(color="FFFFFF", bold=True)
+    row += 1
+    
+    # Add cashout line
+    ws.cell(row=row, column=1, value="Выдано игрокам (кашаут):")
+    ws.cell(row=row, column=2, value=total_chip_cashout)
+    ws.cell(row=row, column=2).fill = MONEY_NEGATIVE_FILL
+    ws.cell(row=row, column=2).font = Font(bold=True)
     row += 1
 
     ws.cell(row=row, column=1, value="Количество сессий:")

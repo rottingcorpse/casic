@@ -554,6 +554,19 @@ def close_session(
                         amount=cast(Any, -remaining_chips),  # Negative for cashout
                     )
                     db.add(op)
+                    db.flush()
+                    
+                    # Create ChipPurchase record for cashout (negative amount = expense)
+                    purchase = ChipPurchase(
+                        table_id=_as_int(s.table_id),
+                        session_id=str(cast(str, s.id)),
+                        seat_no=int(seat.seat_no),
+                        amount=-remaining_chips,  # Negative for cashout
+                        chip_op_id=_as_int(op.id),
+                        created_by_user_id=_as_int(user.id),
+                        payment_type=cast(Any, "cash"),  # Cashouts are always cash
+                    )
+                    db.add(purchase)
             else:
                 # No credit, just cash out all chips
                 op = ChipOp(
@@ -562,6 +575,19 @@ def close_session(
                     amount=cast(Any, -seat_total),  # Negative for cashout
                 )
                 db.add(op)
+                db.flush()
+                
+                # Create ChipPurchase record for cashout (negative amount = expense)
+                purchase = ChipPurchase(
+                    table_id=_as_int(s.table_id),
+                    session_id=str(cast(str, s.id)),
+                    seat_no=int(seat.seat_no),
+                    amount=-seat_total,  # Negative for cashout
+                    chip_op_id=_as_int(op.id),
+                    created_by_user_id=_as_int(user.id),
+                    payment_type=cast(Any, "cash"),  # Cashouts are always cash
+                )
+                db.add(purchase)
             
             # Set seat total to 0 after cashing out
             seat.total = cast(Any, 0)

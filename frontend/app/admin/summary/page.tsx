@@ -43,7 +43,7 @@ interface BalanceAdjustment {
 interface SummaryData {
   date: string;
   income: { buyin_cash: number; balance_adjustments: number };
-  expenses: { salaries: number; buyin_credit: number; balance_adjustments: number };
+  expenses: { salaries: number; buyin_credit: number; cashout: number; balance_adjustments: number };
   result: number;
   info: { player_balance: number; total_sessions: number; open_sessions: number };
   staff: StaffEntry[];
@@ -215,6 +215,12 @@ export default function SummaryPage() {
                 <span className="text-zinc-300">Покупка фишек (кредит)</span>
                 <span className="text-red-400 font-semibold">
                   -{formatMoney(data.expenses.buyin_credit)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-zinc-300">Выдача фишек (кашаут)</span>
+                <span className="text-red-400 font-semibold">
+                  -{formatMoney(data.expenses.cashout)}
                 </span>
               </div>
               {data.balance_adjustments
