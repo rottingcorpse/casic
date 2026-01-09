@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import SeatGrid from "@/components/SeatGrid";
 import SeatActionSheet from "@/components/SeatActionSheet";
 import StartSessionModal from "@/components/StartSessionModal";
@@ -10,32 +10,8 @@ import TopMenu from "@/components/TopMenu";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { useAuth } from "@/components/auth/AuthContext";
 import { apiJson, getSelectedTableId, setSelectedTableId } from "@/lib/api";
+import { normalizeTableId, getErrorMessage } from "@/lib/utils";
 import type { Seat, Session, Table } from "@/lib/types";
-
-function normalizeTableId(v: unknown) {
-  if (typeof v === "number") return Number.isFinite(v) && v > 0 ? v : null;
-
-  if (typeof v === "string") {
-    const n = Number(v);
-    return Number.isFinite(n) && n > 0 ? n : null;
-  }
-
-  return null;
-}
-
-function getErrorMessage(e: unknown) {
-  if (e instanceof Error) return e.message;
-  if (typeof e === "string") return e;
-  if (e && typeof e === "object" && "message" in e) {
-    const m = e.message;
-    return typeof m === "string" ? m : "Ошибка";
-  }
-  try {
-    return JSON.stringify(e);
-  } catch {
-    return "Ошибка";
-  }
-}
 
 function buildOpenSessionUrl(userRole: string | undefined, tableId?: number): string {
   let url = "/api/sessions/open";
@@ -80,12 +56,7 @@ export default function HomePage() {
     return tables.find((t) => t.id === tableId) ?? null;
   }, [tables, tableId]);
 
-  function normalizeTableId(v: unknown) {
-    const n = Number(v);
-    return Number.isFinite(n) && n > 0 ? n : null;
-  }
-
-  async function loadTablesAndSelect() {
+  const loadTablesAndSelect = useCallback(async () => {
     if (!user) return;
 
     setError(null);
@@ -129,9 +100,9 @@ export default function HomePage() {
       setLoading(false);
       setError(getErrorMessage(e) ?? "Ошибка загрузки столов");
     }
-  }
+  }, [user]);
 
-  async function loadOpenSession(tid?: number) {
+  const loadOpenSession = useCallback(async (tid?: number) => {
     setError(null);
     setLoading(true);
     try {
@@ -150,22 +121,22 @@ export default function HomePage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [user]);
 
-  function handleSessionCreated() {
+  const handleSessionCreated = useCallback(() => {
     setShowStartModal(false);
     if (tableId) {
       loadOpenSession(tableId);
     }
-  }
+  }, [tableId, loadOpenSession]);
 
-  function updateSeatInState(updated: Seat) {
+  const updateSeatInState = useCallback((updated: Seat) => {
     setSeats((prev) =>
       prev.map((s) => (s.seat_no === updated.seat_no ? updated : s))
     );
-  }
+  }, []);
 
-  async function assignPlayer(playerName: string | null) {
+  const assignPlayer = useCallback(async (playerName: string | null) => {
     if (!session || !activeSeatNo) return;
     setError(null);
     setBusy(true);
@@ -183,29 +154,18 @@ export default function HomePage() {
     } finally {
       setBusy(false);
     }
-  }
+  }, [session, activeSeatNo, updateSeatInState]);
 
-  function addChips(amount: number) {
-    if (!session || !activeSeatNo) return;
-    setError(null);
-
-    // Only show cash/credit modal for positive amounts (buyin)
-    // Negative amounts (cashout) are processed directly
-    if (amount > 0) {
-      setPendingChipAmount(amount);
-      setShowCashModal(true);
-    } else {
-      // For cashout, process directly without payment type
-      confirmChipPurchase(amount, "cash");
-    }
-  }
-
-  async function confirmChipPurchase(amount: number, paymentType: "cash" | "credit") {
+  const confirmChipPurchase = useCallback(async (amount: number, paymentType: "cash" | "credit") => {
     if (!session || !activeSeatNo) return;
     setError(null);
     setBusy(true);
     try {
-      const body: any = {
+      const body: {
+        seat_no: number;
+        amount: number;
+        payment_type?: "cash" | "credit";
+      } = {
         seat_no: activeSeatNo,
         amount: amount,
       };
@@ -239,36 +199,24 @@ export default function HomePage() {
     } finally {
       setBusy(false);
     }
-  }
+  }, [session, activeSeatNo, updateSeatInState, user]);
 
-  async function undoLast() {
+  const addChips = useCallback((amount: number) => {
     if (!session || !activeSeatNo) return;
     setError(null);
-    setBusy(true);
-    try {
-      const updated = await apiJson<Seat>(
-        "/api/sessions/" + session.id + "/chips/undo",
-        {
-          method: "POST",
-          body: JSON.stringify({ seat_no: activeSeatNo }),
-        }
-      );
-      updateSeatInState(updated);
 
-      // Refresh session to get updated chips_in_play
-      const url = buildOpenSessionUrl(user?.role, session.table_id);
-      const updatedSession = await apiJson<Session>(url);
-      if (updatedSession) {
-        setSession(updatedSession);
-      }
-    } catch (e) {
-      setError(getErrorMessage(e) || "Ошибка");
-    } finally {
-      setBusy(false);
+    // Only show cash/credit modal for positive amounts (buyin)
+    // Negative amounts (cashout) are processed directly
+    if (amount > 0) {
+      setPendingChipAmount(amount);
+      setShowCashModal(true);
+    } else {
+      // For cashout, process directly without payment type
+      confirmChipPurchase(amount, "cash");
     }
-  }
+  }, [session, activeSeatNo, confirmChipPurchase]);
 
-  async function showCloseConfirmation() {
+  const showCloseConfirmation = useCallback(async () => {
     if (!session) return;
     setError(null);
     setBusy(true);
@@ -287,9 +235,9 @@ export default function HomePage() {
     } finally {
       setBusy(false);
     }
-  }
+  }, [session]);
 
-  async function confirmCloseSession() {
+  const confirmCloseSession = useCallback(async () => {
     if (!session) return;
     setError(null);
     setBusy(true);
@@ -308,19 +256,17 @@ export default function HomePage() {
     } finally {
       setBusy(false);
     }
-  }
+  }, [session]);
 
   useEffect(() => {
     if (!user) return;
     loadTablesAndSelect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [user, loadTablesAndSelect]);
 
   useEffect(() => {
     if (!tableId) return;
     loadOpenSession(tableId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableId]);
+  }, [tableId, loadOpenSession]);
 
   const totals = useMemo(() => {
     const chips = seats.reduce((acc, s) => acc + (s.total || 0), 0);
@@ -475,7 +421,6 @@ export default function HomePage() {
               onClose={() => setActiveSeatNo(null)}
               onAssign={assignPlayer}
               onAdd={addChips}
-              onUndo={undoLast}
             />
 
             <CashConfirmationModal

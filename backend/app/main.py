@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+import logging
+import sys
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
@@ -11,17 +14,43 @@ from .core.security import get_password_hash
 from .models.db import Base, User
 
 
+def configure_logging() -> None:
+    """Configure structured logging for the application."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)],
+    )
+    
+    # Set specific log levels for third-party libraries
+    logging.getLogger("uvicorn").setLevel(logging.INFO)
+    logging.getLogger("sqlalchemy").setLevel(logging.WARNING)
+
+
+logger = logging.getLogger(__name__)
+configure_logging()
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Chips Manager", version="1.0.0")
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_list(),
-        allow_credentials=True, 
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=["Content-Disposition"],
     )
+
+    # Add request logging middleware
+    @app.middleware("http")
+    async def log_requests(request: Request, call_next):
+        """Log incoming requests."""
+        logger.info(f"Request: {request.method} {request.url.path}")
+        response = await call_next(request)
+        logger.info(f"Response: {request.method} {request.url.path} - Status: {response.status_code}")
+        return response
 
     app.include_router(auth_router)
     app.include_router(sessions_router)
@@ -38,7 +67,9 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     def startup():
+        logger.info("Starting application...")
         Base.metadata.create_all(bind=engine)
+        logger.info("Database tables created/verified")
 
         # Migrate: add dealer_id and waiter_id columns to sessions if missing
         with engine.connect() as conn:
@@ -111,6 +142,7 @@ def create_app() -> FastAPI:
         try:
           exists = db.query(User).filter(User.role == "superadmin").first()
           if not exists:
+              logger.info("Creating default superadmin user")
               u = User(
                   username=settings.SUPERADMIN_USERNAME,
                   password_hash=get_password_hash(settings.SUPERADMIN_PASSWORD),
@@ -120,8 +152,13 @@ def create_app() -> FastAPI:
               )
               db.add(u)
               db.commit()
+              logger.info(f"Superadmin user '{settings.SUPERADMIN_USERNAME}' created successfully")
+          else:
+              logger.info("Superadmin user already exists")
         finally:
             db.close()
+        
+        logger.info("Application startup complete")
 
     return app
 

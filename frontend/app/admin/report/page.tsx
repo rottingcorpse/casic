@@ -109,7 +109,7 @@ export default function ReportPage() {
               Комплексный отчёт по всем столам
             </div>
           </div>
-          <AdminNavigation currentPath="/admin/report" />
+          <AdminNavigation />
         </div>
 
         {error && (

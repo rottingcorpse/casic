@@ -1,18 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import TopMenu from "@/components/TopMenu";
 import AdminNavigation from "@/components/AdminNavigation";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { useAuth } from "@/components/auth/AuthContext";
 import { apiFetch } from "@/lib/api";
-
-type UserRole = "superadmin" | "table_admin" | "dealer" | "waiter";
-
-type Table = {
-  id: number;
-  name: string;
-};
+import { formatMoney, formatTime } from "@/lib/utils";
+import type { Table } from "@/lib/types";
 
 type SessionCredit = {
   seat_no: number;
@@ -37,44 +32,6 @@ type ClosedSession = {
   total_cashouts: number;
   credits: SessionCredit[];
 };
-
-function formatMoney(n: number | undefined | null) {
-  if (n === undefined || n === null) {
-    return "0";
-  }
-  return n.toLocaleString("ru-RU");
-}
-
-function formatDateTime(isoString: string) {
-  const d = new Date(isoString);
-  const date = d.toLocaleDateString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-  const time = d.toLocaleTimeString("ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  return `${date} ${time}`;
-}
-
-function formatTime(isoString: string) {
-  const d = new Date(isoString);
-  return d.toLocaleTimeString("ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatDate(isoString: string) {
-  const d = new Date(isoString);
-  return d.toLocaleDateString("ru-RU", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  });
-}
 
 // Get working day boundaries for a given calendar date
 // Working day: 20:00 (8 PM) to 18:00 (6 PM) of next day
@@ -158,7 +115,7 @@ export default function SessionsPage() {
   } | null>(null);
   const [closingCredit, setClosingCredit] = useState(false);
 
-  async function loadTables() {
+  const loadTables = useCallback(async () => {
     try {
       const res = await apiFetch("/api/admin/tables");
       if (!res.ok) {
@@ -177,9 +134,9 @@ export default function SessionsPage() {
     } catch (e: unknown) {
       setError((e as Error)?.message ?? "Ошибка загрузки столов");
     }
-  }
+  }, [user, selectedTableId]);
 
-  async function loadSessions() {
+  const loadSessions = useCallback(async () => {
     if (!selectedTableId) return;
     
     setLoading(true);
@@ -196,9 +153,9 @@ export default function SessionsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [selectedTableId]);
 
-  async function closeCredit(sessionId: string, seatNo: number, amount: number) {
+  const closeCredit = useCallback(async (sessionId: string, seatNo: number, amount: number) => {
     setClosingCredit(true);
     setError(null);
     try {
@@ -227,21 +184,24 @@ export default function SessionsPage() {
     } finally {
       setClosingCredit(false);
     }
-  }
+  }, [loadSessions]);
 
   // Load tables on mount
   useEffect(() => {
     if (user && (user.role === "superadmin" || user.role === "table_admin")) {
       loadTables();
     }
-  }, [user]);
+  }, [user, loadTables]);
 
   // Load sessions when table is selected
   useEffect(() => {
     if (selectedTableId) {
       loadSessions();
     }
-  }, [selectedTableId]);
+  }, [selectedTableId, loadSessions]);
+
+  const sessionsByDay = useMemo(() => groupSessionsByDay(sessions), [sessions]);
+  const days = useMemo(() => Array.from(sessionsByDay.keys()), [sessionsByDay]);
 
   if (!user) {
     return (
@@ -264,9 +224,6 @@ export default function SessionsPage() {
     );
   }
 
-  const sessionsByDay = groupSessionsByDay(sessions);
-  const days = Array.from(sessionsByDay.keys());
-
   return (
     <RequireAuth>
       <main className="p-3 max-w-md mx-auto pb-20">
@@ -274,7 +231,7 @@ export default function SessionsPage() {
 
         <div className="flex items-center justify-between mb-3">
           <div className="text-xl font-bold text-white">История сессий</div>
-          <AdminNavigation currentPath="/admin/sessions" />
+          <AdminNavigation />
         </div>
 
         {error && (
@@ -390,7 +347,7 @@ export default function SessionsPage() {
 
                         <div className="flex justify-between text-zinc-300">
                           <span>Фишки в игре:</span>
-                          <span className="text-white">{formatMoney(session.chips_in_play)}</span>
+                          <span className="text-white">{formatMoney(session.chips_in_play ?? 0)}</span>
                         </div>
 
                         <div className="flex justify-between text-zinc-300">

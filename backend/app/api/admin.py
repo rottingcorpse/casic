@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session as DBSession, joinedload
 from typing import Any, cast
 
 from ..core.deps import get_current_user, get_db, require_roles
+from ..core.exceptions import ErrorMessages
 from ..core.security import get_password_hash
 from ..models.db import CasinoBalanceAdjustment, ChipOp, ChipPurchase, Seat, Session, Table, User
 from ..models.schemas import (
@@ -27,6 +28,7 @@ from ..models.schemas import (
     UserOut,
     UserUpdateIn,
 )
+from ..services.credit_service import CreditService
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -40,12 +42,12 @@ def _normalize_table_name(v: str) -> str:
 
 
 def _sanitize_cell(v: str) -> str:
-    # В CSV/TSV переносы строк и табы часто ломают "по-строчно" парсинг в Excel/BI
+    """Sanitize cell value for CSV/TSV export by removing line breaks and tabs."""
     return v.replace("\r", " ").replace("\n", " ").replace("\t", " ")
 
 
 def _ascii_filename_component(name: str) -> str:
-    # Нужен именно ASCII, иначе часть клиентов игнорирует filename= и берёт "кракозябры"
+    """Convert filename to ASCII-safe characters for HTTP headers."""
     out = []
     for ch in name:
         if ch.isascii() and (ch.isalnum() or ch in "._-"):
@@ -53,6 +55,40 @@ def _ascii_filename_component(name: str) -> str:
         else:
             out.append("_")
     return "".join(out)
+
+
+def _resolve_table_id_for_user(user: User, table_id: int | None = None) -> int:
+    """
+    Resolve the table_id to use based on user role and permissions.
+    
+    Args:
+        user: Current user
+        table_id: Optional table_id from request
+        
+    Returns:
+        Resolved table_id
+        
+    Raises:
+        HTTPException: If table_id cannot be resolved or access is forbidden
+    """
+    role = cast(str, user.role)
+    
+    if role == "superadmin":
+        if table_id is None:
+            raise HTTPException(status_code=400, detail=ErrorMessages.TABLE_ID_REQUIRED)
+        return int(table_id)
+    
+    if role not in ("table_admin", "waiter"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    if user.table_id is None:
+        raise HTTPException(status_code=403, detail=ErrorMessages.NO_TABLE_ASSIGNED)
+    
+    tid = int(cast(int, user.table_id))
+    if table_id is not None and int(table_id) != tid:
+        raise HTTPException(status_code=403, detail=ErrorMessages.FORBIDDEN_FOR_TABLE)
+    
+    return tid
 
 
 @router.get("/tables", response_model=list[TableOut])
@@ -316,6 +352,22 @@ def list_balance_adjustments(
     return out
 
 
+def _get_working_day_boundaries(date: dt.date) -> tuple[dt.datetime, dt.datetime]:
+    """
+    Get working day boundaries for a given calendar date.
+    Working day: 20:00 (8 PM) to 18:00 (6 PM) of next day.
+
+    Args:
+        date: Calendar date (YYYY-MM-DD)
+
+    Returns:
+        Tuple of (start_datetime, end_datetime) in UTC
+    """
+    start = dt.datetime.combine(date, dt.time(20, 0, 0))
+    end = dt.datetime.combine(date + dt.timedelta(days=1), dt.time(18, 0, 0))
+    return start, end
+
+
 @router.get("/export")
 def export_day(
     date: str = Query(..., description="YYYY-MM-DD"),
@@ -327,31 +379,20 @@ def export_day(
     try:
         d = dt.date.fromisoformat(date)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format (expected YYYY-MM-DD)")
+        raise HTTPException(status_code=400, detail=ErrorMessages.INVALID_DATE_FORMAT)
 
-    role = cast(str, user.role)
-
-    if role not in ("superadmin", "table_admin", "waiter"):
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-    if role == "superadmin":
-        if table_id is None:
-            raise HTTPException(status_code=400, detail="table_id is required for superadmin")
-        tid = int(table_id)
-    else:
-        if user.table_id is None:
-            raise HTTPException(status_code=403, detail="No table assigned")
-        tid = int(cast(int, user.table_id))
-        if table_id is not None and int(table_id) != tid:
-            raise HTTPException(status_code=403, detail="Forbidden for this table")
+    tid = _resolve_table_id_for_user(user, table_id)
 
     table = db.query(Table).filter(Table.id == tid).first()
     if not table:
-        raise HTTPException(status_code=404, detail="Table not found")
+        raise HTTPException(status_code=404, detail=ErrorMessages.TABLE_NOT_FOUND)
+
+    # Get working day boundaries (20:00 to 18:00 next day)
+    start_time, end_time = _get_working_day_boundaries(d)
 
     sessions = (
         db.query(Session)
-        .filter(Session.table_id == tid, Session.date == d)
+        .filter(Session.table_id == tid, Session.created_at >= start_time, Session.created_at < end_time)
         .order_by(Session.created_at.asc())
         .all()
     )
@@ -436,24 +477,12 @@ def list_closed_sessions(
     For table_admin: returns sessions for their assigned table only.
     For superadmin: returns sessions for specified table_id.
     """
-    role = cast(str, user.role)
-    
-    # Determine which table_id to query
-    if role == "superadmin":
-        if table_id is None:
-            raise HTTPException(status_code=400, detail="table_id is required for superadmin")
-        tid = int(table_id)
-    else:  # table_admin
-        if user.table_id is None:
-            raise HTTPException(status_code=403, detail="No table assigned")
-        tid = int(cast(int, user.table_id))
-        if table_id is not None and int(table_id) != tid:
-            raise HTTPException(status_code=403, detail="Forbidden for this table")
+    tid = _resolve_table_id_for_user(user, table_id)
     
     # Verify table exists
     table = db.query(Table).filter(Table.id == tid).first()
     if not table:
-        raise HTTPException(status_code=404, detail="Table not found")
+        raise HTTPException(status_code=404, detail=ErrorMessages.TABLE_NOT_FOUND)
     
     # Get closed sessions, sorted by created_at descending
     sessions = (
@@ -464,8 +493,59 @@ def list_closed_sessions(
         .all()
     )
     
-    out: list[ClosedSessionOut] = []
+    if not sessions:
+        return []
     
+    # Batch load all related data to avoid N+1 queries
+    session_ids = [s.id for s in sessions]
+    
+    # Load all seats for all sessions at once
+    all_seats = (
+        db.query(Seat)
+        .filter(Seat.session_id.in_(session_ids))
+        .all()
+    )
+    seats_by_session: dict[str, dict[int, Seat]] = {}
+    for seat in all_seats:
+        sid = cast(str, seat.session_id)
+        if sid not in seats_by_session:
+            seats_by_session[sid] = {}
+        seats_by_session[sid][int(cast(int, seat.seat_no))] = seat
+    
+    # Load all credit purchases for all sessions at once
+    all_credit_purchases = (
+        db.query(ChipPurchase)
+        .filter(
+            ChipPurchase.session_id.in_(session_ids),
+            ChipPurchase.payment_type == "credit",
+            ChipPurchase.amount > 0,
+        )
+        .all()
+    )
+    credit_by_session: dict[str, dict[int, int]] = {}
+    for cp in all_credit_purchases:
+        sid = cast(str, cp.session_id)
+        seat_no = int(cast(int, cp.seat_no))
+        amount = int(cast(int, cp.amount))
+        if sid not in credit_by_session:
+            credit_by_session[sid] = {}
+        credit_by_session[sid][seat_no] = credit_by_session[sid].get(seat_no, 0) + amount
+    
+    # Load all chip ops for all sessions at once
+    all_chip_ops = (
+        db.query(ChipOp)
+        .filter(ChipOp.session_id.in_(session_ids))
+        .all()
+    )
+    chip_ops_by_session: dict[str, list[ChipOp]] = {}
+    for op in all_chip_ops:
+        sid = cast(str, op.session_id)
+        if sid not in chip_ops_by_session:
+            chip_ops_by_session[sid] = []
+        chip_ops_by_session[sid].append(op)
+    
+    # Build response
+    out: list[ClosedSessionOut] = []
     for s in sessions:
         # Get dealer and waiter usernames
         dealer_username = None
@@ -477,29 +557,11 @@ def list_closed_sessions(
             waiter_username = cast(str, s.waiter.username)
         
         # Get seats for this session
-        seats = db.query(Seat).filter(Seat.session_id == s.id).all()
-        seat_info = {int(cast(int, seat.seat_no)): seat for seat in seats}
-        
-        # Get all credit purchases for this session
-        credit_purchases = (
-            db.query(ChipPurchase)
-            .filter(
-                ChipPurchase.session_id == s.id,
-                ChipPurchase.payment_type == "credit",
-                ChipPurchase.amount > 0,
-            )
-            .all()
-        )
-        
-        # Group credit by seat_no
-        credit_by_seat: dict[int, int] = {}
-        for cp in credit_purchases:
-            seat_no = int(cast(int, cp.seat_no))
-            amount = int(cast(int, cp.amount))
-            credit_by_seat[seat_no] = credit_by_seat.get(seat_no, 0) + amount
+        seat_info = seats_by_session.get(cast(str, s.id), {})
         
         # Build credits list with player names
         credits = []
+        credit_by_seat = credit_by_session.get(cast(str, s.id), {})
         for seat_no, amount in sorted(credit_by_seat.items()):
             seat = seat_info.get(seat_no)
             player_name = seat.player_name if seat and seat.player_name else None
@@ -510,7 +572,7 @@ def list_closed_sessions(
             })
         
         # Calculate totals
-        chip_ops = db.query(ChipOp).filter(ChipOp.session_id == s.id).all()
+        chip_ops = chip_ops_by_session.get(cast(str, s.id), [])
         total_buyins = sum(int(cast(int, op.amount)) for op in chip_ops if op.amount > 0)
         total_cashouts = sum(int(cast(int, op.amount)) for op in chip_ops if op.amount < 0)
         total_rake = total_buyins + total_cashouts  # cashouts are negative, so this gives the rake
@@ -580,18 +642,10 @@ def close_player_credit(
     player_name = seat.player_name if seat.player_name else f"Seat {payload.seat_no}"
     
     # Calculate total credit for this seat
-    credit_purchases = (
-        db.query(ChipPurchase)
-        .filter(
-            ChipPurchase.session_id == payload.session_id,
-            ChipPurchase.seat_no == payload.seat_no,
-            ChipPurchase.payment_type == "credit",
-            ChipPurchase.amount > 0,
-        )
-        .all()
+    credit_purchases = CreditService.get_credit_purchases_for_seat(
+        db, payload.session_id, payload.seat_no
     )
-    
-    total_credit = sum(int(cast(int, cp.amount)) for cp in credit_purchases)
+    total_credit = CreditService.calculate_total_credit(credit_purchases)
     
     if total_credit == 0:
         raise HTTPException(status_code=400, detail="No credit found for this player")
@@ -602,43 +656,29 @@ def close_player_credit(
             detail=f"Amount exceeds available credit. Available: {total_credit}, Requested: {payload.amount}"
         )
     
-    # Create balance adjustment (positive amount = profit for casino)
+    # Close the credit using the service
+    CreditService.close_credit(db, session, seat, payload.amount, current_user)
+    
+    # Get the adjustment that was just created
     table = db.query(Table).filter(Table.id == session.table_id).first()
     table_name = table.name if table else "Unknown"
-    
-    # Format the date of the session
     session_date = session.date.strftime("%d.%m.%Y") if session.date else ""
     
-    adjustment = CasinoBalanceAdjustment(
-        amount=payload.amount,
-        comment=f"Долг ({player_name}) - {table_name} - {session_date}",
-        created_by_user_id=current_user.id,
+    adjustment = (
+        db.query(CasinoBalanceAdjustment)
+        .filter(
+            CasinoBalanceAdjustment.comment == f"Долг ({player_name}) - {table_name} - {session_date}",
+            CasinoBalanceAdjustment.amount == payload.amount,
+            CasinoBalanceAdjustment.created_by_user_id == current_user.id,
+        )
+        .order_by(CasinoBalanceAdjustment.id.desc())
+        .first()
     )
-    db.add(adjustment)
-    db.flush()
-    
-    # Remove credit purchases by deleting them
-    # We need to delete enough credit purchases to match the amount
-    remaining_to_close = payload.amount
-    for cp in sorted(credit_purchases, key=lambda x: x.created_at):
-        if remaining_to_close <= 0:
-            break
-        
-        cp_amount = int(cast(int, cp.amount))
-        if cp_amount <= remaining_to_close:
-            # Delete the entire purchase
-            db.delete(cp)
-            remaining_to_close -= cp_amount
-        else:
-            # Partially close by reducing the amount
-            cp.amount = cast(Any, cp_amount - remaining_to_close)
-            remaining_to_close = 0
     
     db.commit()
-    db.refresh(adjustment)
     
     return CloseCreditOut(
         success=True,
         message=f"Successfully closed {payload.amount} credit for {player_name}",
-        adjustment_id=int(cast(int, adjustment.id)),
+        adjustment_id=int(cast(int, adjustment.id)) if adjustment else None,
     )

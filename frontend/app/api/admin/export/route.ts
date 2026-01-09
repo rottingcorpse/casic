@@ -17,17 +17,25 @@ export async function GET(request: Request) {
   const authorization = request.headers.get("authorization");
   if (authorization) headers.set("authorization", authorization);
 
-  const res = await fetch(target.toString(), {
-    method: "GET",
-    headers,
-    cache: "no-store",
-  });
+  try {
+    const res = await fetch(target.toString(), {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    });
 
-  const outHeaders = new Headers(res.headers);
-  outHeaders.delete("content-encoding");
+    const outHeaders = new Headers(res.headers);
+    outHeaders.delete("content-encoding");
 
-  return new NextResponse(res.body, {
-    status: res.status,
-    headers: outHeaders,
-  });
+    return new NextResponse(res.body, {
+      status: res.status,
+      headers: outHeaders,
+    });
+  } catch (error) {
+    console.error("Error in export API route:", error);
+    return NextResponse.json(
+      { error: "Internal server error", message: error instanceof Error ? error.message : "Unknown error" },
+      { status: 500 }
+    );
+  }
 }

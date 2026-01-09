@@ -1,0 +1,75 @@
+from __future__ import annotations
+
+# Pagination limits
+DEFAULT_PAGINATION_LIMIT = 50
+MAX_PAGINATION_LIMIT = 500
+MIN_PAGINATION_LIMIT = 1
+
+# Chip purchases pagination
+CHIP_PURCHASES_DEFAULT_LIMIT = 100
+CHIP_PURCHASES_MAX_LIMIT = 500
+
+# Balance adjustments pagination
+BALANCE_ADJUSTMENTS_DEFAULT_LIMIT = 50
+BALANCE_ADJUSTMENTS_MAX_LIMIT = 200
+
+# Session limits
+DEFAULT_SEATS_COUNT = 24
+MIN_SEATS_COUNT = 1
+MAX_SEATS_COUNT = 100
+
+# JWT settings
+JWT_DEFAULT_EXPIRES_MINUTES = 60 * 24 * 7  # 7 days
+JWT_ALGORITHM = "HS256"
+
+# User roles
+ROLE_SUPERADMIN = "superadmin"
+ROLE_TABLE_ADMIN = "table_admin"
+ROLE_DEALER = "dealer"
+ROLE_WAITER = "waiter"
+
+VALID_ROLES = [ROLE_SUPERADMIN, ROLE_TABLE_ADMIN, ROLE_DEALER, ROLE_WAITER]
+
+# Session statuses
+STATUS_OPEN = "open"
+STATUS_CLOSED = "closed"
+
+VALID_SESSION_STATUSES = [STATUS_OPEN, STATUS_CLOSED]
+
+# Payment types
+PAYMENT_TYPE_CASH = "cash"
+PAYMENT_TYPE_CREDIT = "credit"
+
+VALID_PAYMENT_TYPES = [PAYMENT_TYPE_CASH, PAYMENT_TYPE_CREDIT]
+
+# Table name constraints
+TABLE_NAME_MIN_LENGTH = 1
+TABLE_NAME_MAX_LENGTH = 120
+
+# Username constraints
+USERNAME_MIN_LENGTH = 1
+USERNAME_MAX_LENGTH = 120
+
+# Comment constraints
+COMMENT_MIN_LENGTH = 1
+COMMENT_MAX_LENGTH = 1000
+
+# Date format
+DATE_FORMAT_ISO = "%Y-%m-%d"
+DATE_FORMAT_DISPLAY = "%d.%m.%Y"
+
+# File formats for export
+EXPORT_FORMAT_TSV = "tsv"
+EXPORT_FORMAT_CSV = "csv"
+
+VALID_EXPORT_FORMATS = [EXPORT_FORMAT_TSV, EXPORT_FORMAT_CSV]
+
+# Export media types
+MEDIA_TYPE_TSV = "text/tab-separated-values"
+MEDIA_TYPE_CSV = "text/csv"
+
+# CORS
+DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
+
+# Database
+DEFAULT_DB_URL = "sqlite:///./chips.db"

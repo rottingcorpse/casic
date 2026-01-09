@@ -34,8 +34,8 @@ export default function LoginPage() {
       }
 
       router.replace("/");
-    } catch (e: any) {
-      setErr(e?.message ?? "Ошибка авторизации");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Ошибка авторизации");
     } finally {
       setBusy(false);
     }

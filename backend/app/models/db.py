@@ -11,12 +11,15 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import declarative_base, relationship
+
+from ..core.datetime_utils import utc_now
 
 Base = declarative_base()
 
@@ -29,6 +32,11 @@ class Table(Base):
     seats_count = Column(Integer, nullable=False, default=24)
 
     sessions = relationship("Session", back_populates="table", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        # Ensure seats_count is positive
+        # Note: Check constraints are not supported in SQLite
+    )
 
 
 class User(Base):
@@ -44,6 +52,10 @@ class User(Base):
 
     table = relationship("Table")
 
+    __table_args__ = (
+        # Note: Check constraints for role and hourly_rate are not supported in SQLite
+    )
+
 
 class Session(Base):
     __tablename__ = "sessions"
@@ -51,8 +63,8 @@ class Session(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     table_id = Column(Integer, ForeignKey("tables.id"), nullable=False, index=True)
     date = Column(Date, nullable=False, index=True)
-    status = Column(String(16), nullable=False, default="open")  # open|closed
-    created_at = Column(DateTime, nullable=False, default=lambda: dt.datetime.utcnow())
+    status = Column(String(16), nullable=False, default="open", index=True)  # open|closed
+    created_at = Column(DateTime, nullable=False, default=utc_now, index=True)
     closed_at = Column(DateTime, nullable=True)  # When session was closed
 
     # Staff assignments
@@ -86,6 +98,8 @@ class Seat(Base):
 
     __table_args__ = (
         UniqueConstraint("session_id", "seat_no", name="uq_seat_session_seatno"),
+        Index("ix_seat_session_seat", "session_id", "seat_no"),
+        # Note: Check constraints for seat_no and total are not supported in SQLite
     )
 
 
@@ -96,7 +110,7 @@ class ChipOp(Base):
     session_id = Column(String(36), ForeignKey("sessions.id"), nullable=False, index=True)
     seat_no = Column(Integer, nullable=False)
     amount = Column(Integer, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=lambda: dt.datetime.utcnow())
+    created_at = Column(DateTime, nullable=False, default=utc_now)
 
     session = relationship("Session", back_populates="ops")
     
@@ -108,7 +122,7 @@ class ChipPurchase(Base):
 
     table_id = Column(Integer, ForeignKey("tables.id"), nullable=False, index=True)
 
-    # ВАЖНО: тип должен совпадать с sessions.id
+    # IMPORTANT: type must match sessions.id
     session_id = Column(String, ForeignKey("sessions.id"), nullable=False, index=True)
 
     seat_no = Column(Integer, nullable=False, index=True)
@@ -116,7 +130,7 @@ class ChipPurchase(Base):
 
     chip_op_id = Column(Integer, ForeignKey("chip_ops.id"), nullable=False, unique=True, index=True)
 
-    created_at = Column(DateTime, nullable=False, default=dt.datetime.utcnow, index=True)
+    created_at = Column(DateTime, nullable=False, default=utc_now, index=True)
 
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
 
@@ -139,7 +153,7 @@ class CasinoBalanceAdjustment(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     
     # Timestamp of when the adjustment was made
-    created_at = Column(DateTime, nullable=False, default=dt.datetime.utcnow, index=True)
+    created_at = Column(DateTime, nullable=False, default=utc_now, index=True)
     
     # Amount (positive for profit, negative for expense)
     amount = Column(Integer, nullable=False)

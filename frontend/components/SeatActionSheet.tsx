@@ -1,9 +1,8 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { Seat } from "@/lib/types";
-
-const PRESETS = [-100, -500, -1000, -5000, 100, 500, 1000, 5000];
+import { CHIP_PRESETS } from "@/lib/constants";
 
 export default function SeatActionSheet({
   open,
@@ -11,23 +10,15 @@ export default function SeatActionSheet({
   onClose,
   onAssign,
   onAdd,
-  onUndo,
 }: {
   open: boolean;
   seat: Seat | null;
   onClose: () => void;
   onAssign: (playerName: string | null) => Promise<void>;
   onAdd: (amount: number) => void;
-  onUndo: () => Promise<void>;
 }) {
   const [playerName, setPlayerName] = useState("");
   const [customAmount, setCustomAmount] = useState<string>("");
-
-  useEffect(() => {
-    if (!seat) return;
-    setPlayerName(seat.player_name ?? "");
-    setCustomAmount("");
-  }, [seat?.seat_no]);
 
   const seatNo = seat?.seat_no ?? 0;
   const playerChips = seat?.total ?? 0;
@@ -84,7 +75,7 @@ export default function SeatActionSheet({
         <div className="mb-3">
           <div className="text-xs text-zinc-500 mb-2">Фишки</div>
           <div className="grid grid-cols-4 gap-2">
-            {PRESETS.map((v) => (
+            {CHIP_PRESETS.map((v) => (
               <button
                 key={v}
                 className={[

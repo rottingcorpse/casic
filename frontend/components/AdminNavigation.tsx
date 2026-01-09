@@ -4,11 +4,10 @@ import { useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 
 interface AdminNavigationProps {
-  currentPath?: string;
   activeTab?: "tables" | "users" | "purchases";
 }
 
-export default function AdminNavigation({ currentPath, activeTab }: AdminNavigationProps) {
+export default function AdminNavigation({ activeTab }: AdminNavigationProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [showMenu, setShowMenu] = useState(false);
@@ -19,18 +18,27 @@ export default function AdminNavigation({ currentPath, activeTab }: AdminNavigat
       <button
         className="rounded-xl bg-zinc-800 text-white px-3 py-2 text-sm disabled:opacity-60 hover:bg-zinc-700/90"
         onClick={() => setShowMenu(!showMenu)}
+        aria-expanded={showMenu}
+        aria-controls="admin-navigation-menu"
+        aria-label="Открыть меню админки"
       >
         {showMenu ? "☰" : "☰"}
       </button>
 
       {/* Compact navigation for all admin pages */}
       {showMenu && (
-        <div className="fixed inset-0 z-40 bg-black/40 flex items-end" onClick={() => setShowMenu(false)}>
+        <div
+          className="fixed inset-0 z-40 bg-black/40 flex items-end"
+          onClick={() => setShowMenu(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="admin-nav-title"
+        >
           <div
             className="bg-zinc-900 w-full rounded-t-2xl p-4 pb-6 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="text-lg font-bold text-white mb-3">Админка</div>
+            <div id="admin-nav-title" className="text-lg font-bold text-white mb-3">Админка</div>
             <div className="text-xs text-zinc-400 mb-3 font-medium">Разделы</div>
             <div className="grid grid-cols-2 gap-2">
               <button
@@ -43,6 +51,7 @@ export default function AdminNavigation({ currentPath, activeTab }: AdminNavigat
                   router.push("/admin?tab=tables");
                   setShowMenu(false);
                 }}
+                aria-current={pathname === "/admin" && activeTab === "tables" ? "page" : undefined}
               >
                 Столы
               </button>

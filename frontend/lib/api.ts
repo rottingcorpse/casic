@@ -1,6 +1,13 @@
-﻿const API = process.env.NEXT_PUBLIC_API_URL || "http://185.244.50.22:8000";
+﻿import { ApiError } from "./errors";
+
+const API = getApiUrl();
 const TOKEN_KEY = "cm_access_token";
 const TABLE_KEY = "cm_table_id";
+
+function getApiUrl(): string {
+  // Use NEXT_PUBLIC_API_URL if set, otherwise default to localhost:8000
+  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+}
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -58,8 +65,7 @@ async function request(path: string, options: RequestInit = {}): Promise<Respons
 export async function apiJson<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await request(path, options);
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error("API " + res.status + ": " + (text || res.statusText));
+    throw await ApiError.fromResponse(res);
   }
   return (await res.json()) as T;
 }
@@ -67,8 +73,7 @@ export async function apiJson<T>(path: string, options: RequestInit = {}): Promi
 export async function apiText(path: string, options: RequestInit = {}): Promise<string> {
   const res = await request(path, options);
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error("API " + res.status + ": " + (text || res.statusText));
+    throw await ApiError.fromResponse(res);
   }
   return await res.text();
 }
@@ -76,8 +81,7 @@ export async function apiText(path: string, options: RequestInit = {}): Promise<
 export async function apiBlob(path: string, options: RequestInit = {}): Promise<Blob> {
   const res = await request(path, options);
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error("API " + res.status + ": " + (text || res.statusText));
+    throw await ApiError.fromResponse(res);
   }
   return await res.blob();
 }
@@ -102,13 +106,7 @@ export async function apiFetch(path: string, init: RequestInit = {}) {
   });
 
   if (!res.ok) {
-    const ct = res.headers.get("content-type") || "";
-    if (ct.includes("application/json")) {
-      const j = await res.json().catch(() => null);
-      throw new Error(j?.detail || "Ошибка");
-    }
-    const t = await res.text().catch(() => "");
-    throw new Error(t.slice(0, 200) || "Ошибка");
+    throw await ApiError.fromResponse(res);
   }
 
   return res;
@@ -120,8 +118,7 @@ export async function apiDownload(path: string, fallbackFilename?: string) {
   const res = await request(path, { method: "GET" });
 
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error("API " + res.status + ": " + (text || res.statusText));
+    throw await ApiError.fromResponse(res);
   }
 
   const blob = await res.blob();

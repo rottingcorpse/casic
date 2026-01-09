@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import TopMenu from "@/components/TopMenu";
 import AdminNavigation from "@/components/AdminNavigation";
 import { RequireAuth } from "@/components/auth/RequireAuth";
@@ -44,7 +44,7 @@ export default function AdminExportPage() {
     return user.table_id ?? null;
   }, [user, tableId]);
 
-  async function loadTablesIfNeeded() {
+  const loadTablesIfNeeded = useCallback(async () => {
     if (!user) return;
 
     if (user.role !== "superadmin") {
@@ -58,15 +58,14 @@ export default function AdminExportPage() {
     if (!tableId && list.length > 0) {
       setTableId(String(list[0].id));
     }
-  }
+  }, [user, tableId]);
 
   useEffect(() => {
     if (!user) return;
     loadTablesIfNeeded().catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [user, loadTablesIfNeeded]);
 
-  async function download() {
+  const download = useCallback(async () => {
     setError(null);
     setOk(null);
 
@@ -98,12 +97,12 @@ export default function AdminExportPage() {
 
       setOk("Файл скачан");
       setTimeout(() => setOk(null), 2500);
-    } catch (e: any) {
-      setError(e?.message ?? "Ошибка экспорта");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка экспорта");
     } finally {
       setBusy(false);
     }
-  }
+  }, [user, date, format, effectiveTableId]);
 
   if (!user) {
     return (
@@ -147,7 +146,7 @@ export default function AdminExportPage() {
             >
               Обновить
             </button>
-            <AdminNavigation currentPath="/admin/export" />
+            <AdminNavigation />
           </div>
         </div>
 
@@ -180,7 +179,7 @@ export default function AdminExportPage() {
               <div className="text-xs text-zinc-400 mb-1">Формат</div>
               <select
                 value={format}
-                onChange={(e) => setFormat(e.target.value as any)}
+                onChange={(e) => setFormat(e.target.value as "csv" | "tsv")}
                 className="w-full rounded-xl border border-zinc-700 bg-zinc-800 text-white px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-white/15 placeholder-zinc-500"
                 disabled={busy}
               >

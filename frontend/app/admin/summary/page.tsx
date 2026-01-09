@@ -146,7 +146,7 @@ export default function SummaryPage() {
               className="rounded-xl border border-zinc-700 bg-zinc-800 text-white px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-white/15 placeholder-zinc-500"
               disabled={loading}
             />
-            <AdminNavigation currentPath="/admin/summary" />
+            <AdminNavigation />
           </div>
         </div>
 
@@ -218,7 +218,7 @@ export default function SummaryPage() {
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-zinc-300">Выдача фишек (кашаут)</span>
+                <span className="text-zinc-300">Выдача фишек (кэшаут)</span>
                 <span className="text-red-400 font-semibold">
                   -{formatMoney(data.expenses.cashout)}
                 </span>

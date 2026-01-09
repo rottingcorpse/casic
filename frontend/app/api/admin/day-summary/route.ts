@@ -17,12 +17,32 @@ export async function GET(request: Request) {
   const authorization = request.headers.get("authorization");
   if (authorization) headers.set("authorization", authorization);
 
-  const res = await fetch(target.toString(), {
-    method: "GET",
-    headers,
-    cache: "no-store",
-  });
+  try {
+    const res = await fetch(target.toString(), {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    });
 
-  return NextResponse.json(await res.json(), { status: res.status });
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      // If JSON parsing fails, return the response text instead
+      const text = await res.text();
+      return NextResponse.json(
+        { error: "Failed to parse response", details: text },
+        { status: res.status }
+      );
+    }
+
+    return NextResponse.json(data, { status: res.status });
+  } catch (error) {
+    console.error("Error in day-summary API route:", error);
+    return NextResponse.json(
+      { error: "Internal server error", message: error instanceof Error ? error.message : "Unknown error" },
+      { status: 500 }
+    );
+  }
 }
 

@@ -917,7 +917,7 @@ def _create_summary_sheet(
     row += 1
     
     # Add cashout line
-    ws.cell(row=row, column=1, value="Выдано игрокам (кашаут):")
+    ws.cell(row=row, column=1, value="Выдано игрокам (кэшаут):")
     ws.cell(row=row, column=2, value=total_chip_cashout)
     ws.cell(row=row, column=2).fill = MONEY_NEGATIVE_FILL
     ws.cell(row=row, column=2).font = Font(bold=True)

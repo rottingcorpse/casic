@@ -22,6 +22,8 @@ export default function TopMenu() {
         <button
           className="rounded-xl px-3 py-2 bg-zinc-100 text-black active:bg-zinc-200 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-400"
           onClick={() => setOpen(true)}
+          aria-expanded={open}
+          aria-controls="menu-dropdown"
         >
           Меню
         </button>
@@ -35,12 +37,15 @@ export default function TopMenu() {
         <div
           className="fixed inset-0 z-50 bg-black/40 flex items-end"
           onClick={() => setOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="menu-title"
         >
           <div
             className="bg-white w-full rounded-t-2xl p-4 pb-6 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="text-lg font-bold text-black mb-2">Меню</div>
+            <div id="menu-title" className="text-lg font-bold text-black mb-2">Меню</div>
 
             <div className="grid gap-2">
               <button

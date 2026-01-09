@@ -1,62 +1,21 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { useAuth } from "@/components/auth/AuthContext";
 import TopMenu from "@/components/TopMenu";
 import AdminNavigation from "@/components/AdminNavigation";
 import { apiJson } from "@/lib/api";
+import { isNonEmpty, toInt, formatDateTime as fmtDateTime } from "@/lib/utils";
+import { DEFAULT_SEATS_COUNT, DEFAULT_PURCHASE_LIMIT, MIN_PURCHASE_LIMIT, MAX_PURCHASE_LIMIT, MIN_SEATS_COUNT, MAX_SEATS_COUNT, MIN_PASSWORD_LENGTH, SUCCESS_MESSAGE_DURATION } from "@/lib/constants";
+import type { UserRole, Table, User, ChipPurchase } from "@/lib/types";
 
-type UserRole = "superadmin" | "table_admin" | "dealer" | "waiter";
-
-type Table = {
-  id: number;
-  name: string;
-  seats_count: number;
-};
-
-type User = {
-  id: number;
-  username: string;
-  role: UserRole;
-  table_id: number | null;
-  is_active: boolean;
-  hourly_rate: number | null;
-};
-
-type ChipPurchase = {
-  id: number;
-  table_id: number;
-  table_name: string;
-  session_id: string | null;
-  seat_no: number;
-  amount: number;
-  created_at: string; // ISO
-  created_by_user_id: number | null;
-  created_by_username: string | null;
-};
-
-function isNonEmpty(v: any) {
-  return String(v ?? "").trim().length > 0;
-}
-
-function toInt(v: any, fallback: number) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function roleLabel(role: UserRole) {
+function roleLabel(role: UserRole): string {
   if (role === "superadmin") return "Суперадмин";
   if (role === "table_admin") return "Админ стола";
   if (role === "waiter") return "Официант";
   return "Дилер";
-}
-
-function fmtDateTime(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString();
 }
 
 const inputDark =
@@ -89,7 +48,7 @@ function AdminPageContent() {
 
   // ------- Tables create form -------
   const [tableName, setTableName] = useState("");
-  const [tableSeats, setTableSeats] = useState<number>(24);
+  const [tableSeats, setTableSeats] = useState<number>(DEFAULT_SEATS_COUNT);
 
   // ------- Users create form -------
   const [newUsername, setNewUsername] = useState("");
@@ -102,7 +61,7 @@ function AdminPageContent() {
   const [deleteConfirmUserId, setDeleteConfirmUserId] = useState<number | null>(null);
 
   // ------- Purchases controls -------
-  const [purchaseLimit, setPurchaseLimit] = useState<number>(100);
+  const [purchaseLimit, setPurchaseLimit] = useState<number>(DEFAULT_PURCHASE_LIMIT);
 
   // ------- Per-user edit drafts -------
   const [draftRole, setDraftRole] = useState<Record<number, UserRole>>({});
@@ -118,17 +77,17 @@ function AdminPageContent() {
     return m;
   }, [tables]);
 
-  function clearNotices() {
+  const clearNotices = useCallback(() => {
     setError(null);
     setOk(null);
-  }
+  }, []);
 
-  function showOk(msg: string) {
+  const showOk = useCallback((msg: string) => {
     setOk(msg);
-    setTimeout(() => setOk(null), 2500);
-  }
+    setTimeout(() => setOk(null), SUCCESS_MESSAGE_DURATION);
+  }, []);
 
-  function normalizeUserDrafts(list: User[]) {
+  const normalizeUserDrafts = useCallback((list: User[]) => {
     const r: Record<number, UserRole> = {};
     const t: Record<number, number | null> = {};
     const p: Record<number, string> = {};
@@ -143,53 +102,53 @@ function AdminPageContent() {
     setDraftTableId(t);
     setDraftPassword(p);
     setDraftHourlyRate(h);
-  }
+  }, []);
 
-  async function loadTablesOnly() {
+  const loadTablesOnly = useCallback(async () => {
     clearNotices();
     setBusy(true);
     try {
       const t = await apiJson<Table[]>("/api/admin/tables");
       setTables(t);
-    } catch (e: any) {
-      setError(e?.message ?? "Ошибка загрузки столов");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка загрузки столов");
     } finally {
       setBusy(false);
     }
-  }
+  }, [clearNotices]);
 
-  async function loadUsersOnly() {
+  const loadUsersOnly = useCallback(async () => {
     clearNotices();
     setBusy(true);
     try {
       const u = await apiJson<User[]>("/api/admin/users");
       setUsers(u);
       normalizeUserDrafts(u);
-    } catch (e: any) {
-      setError(e?.message ?? "Ошибка загрузки пользователей");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка загрузки пользователей");
     } finally {
       setBusy(false);
     }
-  }
+  }, [clearNotices, normalizeUserDrafts]);
 
-  async function loadPurchasesOnly() {
+  const loadPurchasesOnly = useCallback(async () => {
     clearNotices();
     setBusy(true);
     try {
-      const limit = Math.min(Math.max(toInt(purchaseLimit, 100), 1), 500);
+      const limit = Math.min(Math.max(toInt(purchaseLimit, DEFAULT_PURCHASE_LIMIT), MIN_PURCHASE_LIMIT), MAX_PURCHASE_LIMIT);
       const list = await apiJson<ChipPurchase[]>(
         "/api/admin/chip-purchases?limit=" + limit
       );
       setPurchases(list);
       showOk("Покупки обновлены");
-    } catch (e: any) {
-      setError(e?.message ?? "Ошибка загрузки покупок");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка загрузки покупок");
     } finally {
       setBusy(false);
     }
-  }
+  }, [clearNotices, showOk, purchaseLimit]);
 
-  async function loadAll() {
+  const loadAll = useCallback(async () => {
     clearNotices();
     setBusy(true);
     try {
@@ -200,19 +159,18 @@ function AdminPageContent() {
       setTables(t);
       setUsers(u);
       normalizeUserDrafts(u);
-    } catch (e: any) {
-      setError(e?.message ?? "Ошибка загрузки админки");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка загрузки админки");
     } finally {
       setBusy(false);
     }
-  }
+  }, [clearNotices, normalizeUserDrafts]);
 
   useEffect(() => {
     if (!user) return;
     if (user.role !== "superadmin") return;
     loadAll().catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [user, loadAll]);
 
   useEffect(() => {
     if (!user) return;
@@ -224,43 +182,42 @@ function AdminPageContent() {
     if (tab === "purchases" && purchases.length === 0) {
       loadPurchasesOnly().catch(() => {});
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, user?.id]);
+  }, [user, tab, tables.length, purchases.length, loadTablesOnly, loadPurchasesOnly]);
 
-  async function createTable() {
+  const createTable = useCallback(async () => {
     clearNotices();
 
     const name = tableName.trim();
-    const seats = toInt(tableSeats, 24);
+    const seats = toInt(tableSeats, DEFAULT_SEATS_COUNT);
 
     if (!isNonEmpty(name)) {
       setError("Введите название стола");
       return;
     }
-    if (!(seats >= 1 && seats <= 60)) {
+    if (!(seats >= MIN_SEATS_COUNT && seats <= MAX_SEATS_COUNT)) {
       setError("Количество мест должно быть от 1 до 60");
       return;
     }
 
     setBusy(true);
     try {
-      await apiJson<TableOut>("/api/admin/tables", {
+      await apiJson<Table>("/api/admin/tables", {
         method: "POST",
         body: JSON.stringify({ name, seats_count: seats }),
       });
 
       setTableName("");
-      setTableSeats(24);
+      setTableSeats(DEFAULT_SEATS_COUNT);
       await loadTablesOnly();
       showOk("Стол создан");
-    } catch (e: any) {
-      setError(e?.message ?? "Ошибка создания стола");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка создания стола");
     } finally {
       setBusy(false);
     }
-  }
+  }, [clearNotices, showOk, tableName, tableSeats, loadTablesOnly]);
 
-  async function createUser() {
+  const createUser = useCallback(async () => {
     clearNotices();
 
     const username = newUsername.trim();
@@ -270,7 +227,7 @@ function AdminPageContent() {
       setError("Введите логин");
       return;
     }
-    if (!isNonEmpty(password) || password.length < 4) {
+    if (!isNonEmpty(password) || password.length < MIN_PASSWORD_LENGTH) {
       setError("Пароль должен быть минимум 4 символа");
       return;
     }
@@ -303,14 +260,14 @@ function AdminPageContent() {
 
       await loadUsersOnly();
       showOk("Пользователь создан");
-    } catch (e: any) {
-      setError(e?.message ?? "Ошибка создания пользователя");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка создания пользователя");
     } finally {
       setBusy(false);
     }
-  }
+  }, [clearNotices, showOk, newUsername, newPassword, newRole, newTableId, newHourlyRate, loadUsersOnly]);
 
-  async function saveUser(userId: number) {
+  const saveUser = useCallback(async (userId: number) => {
     clearNotices();
 
     const role = draftRole[userId];
@@ -331,7 +288,7 @@ function AdminPageContent() {
     }
 
     if (isNonEmpty(password)) {
-      if (password.length < 4) {
+      if (password.length < MIN_PASSWORD_LENGTH) {
         setError("Новый пароль должен быть минимум 4 символа");
         return;
       }
@@ -348,18 +305,18 @@ function AdminPageContent() {
       setDraftPassword((prev) => ({ ...prev, [userId]: "" }));
       await loadUsersOnly();
       showOk("Изменения сохранены");
-    } catch (e: any) {
-      setError(e?.message ?? "Ошибка сохранения пользователя");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка сохранения пользователя");
     } finally {
       setBusy(false);
     }
-  }
+  }, [clearNotices, showOk, draftRole, draftTableId, draftPassword, draftHourlyRate, loadUsersOnly]);
 
-  function setRoleForUser(userId: number, role: UserRole) {
+  const setRoleForUser = useCallback((userId: number, role: UserRole) => {
     setDraftRole((prev) => ({ ...prev, [userId]: role }));
-  }
+  }, []);
 
-  async function deleteUser(userId: number) {
+  const deleteUser = useCallback(async (userId: number) => {
     clearNotices();
     setBusy(true);
     try {
@@ -370,18 +327,18 @@ function AdminPageContent() {
       setDeleteConfirmUserId(null);
       await loadUsersOnly();
       showOk("Пользователь удалён");
-    } catch (e: any) {
-      setError(e?.message ?? "Ошибка удаления пользователя");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка удаления пользователя");
     } finally {
       setBusy(false);
     }
-  }
+  }, [clearNotices, showOk, loadUsersOnly]);
 
-  function refreshCurrentTab() {
+  const refreshCurrentTab = useCallback(() => {
     if (tab === "tables") return loadTablesOnly();
     if (tab === "users") return loadUsersOnly();
     return loadPurchasesOnly();
-  }
+  }, [tab, loadTablesOnly, loadUsersOnly, loadPurchasesOnly]);
 
   if (!user) {
     return (
@@ -425,7 +382,7 @@ function AdminPageContent() {
             >
               Обновить
             </button>
-            <AdminNavigation currentPath="/admin" activeTab={tab} />
+            <AdminNavigation activeTab={tab} />
           </div>
         </div>
 
@@ -460,8 +417,8 @@ function AdminPageContent() {
                   onChange={(e) => setTableSeats(Number(e.target.value))}
                   className={inputDark}
                   placeholder="Мест"
-                  min={1}
-                  max={60}
+                  min={MIN_SEATS_COUNT}
+                  max={MAX_SEATS_COUNT}
                 />
 
                 <button
@@ -794,8 +751,8 @@ function AdminPageContent() {
                     value={purchaseLimit}
                     onChange={(e) => setPurchaseLimit(Number(e.target.value))}
                     className={inputDark}
-                    min={1}
-                    max={500}
+                    min={MIN_PURCHASE_LIMIT}
+                    max={MAX_PURCHASE_LIMIT}
                     placeholder="Лимит (например 100)"
                   />
                   <button
@@ -888,9 +845,3 @@ export default function AdminPage() {
   );
 }
 
-// Вспомогательный тип, чтобы не ругался TS в createTable()
-type TableOut = {
-  id: number;
-  name: string;
-  seats_count: number;
-};

@@ -144,7 +144,7 @@ export default function BalanceAdjustmentsPage() {
 
         <div className="flex items-center justify-between mb-3">
           <div className="text-xl font-bold text-white">Корректировки баланса</div>
-          <AdminNavigation currentPath="/admin/balance-adjustments" />
+          <AdminNavigation />
         </div>
 
         {error && (
