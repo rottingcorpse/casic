@@ -121,6 +121,14 @@ def create_app() -> FastAPI:
                 conn.execute(text("ALTER TABLE chip_purchases ADD COLUMN payment_type VARCHAR(16) NOT NULL DEFAULT 'cash'"))
                 conn.commit()
 
+        # Migrate: add chips_in_play column to sessions if missing
+        with engine.connect() as conn:
+            try:
+                conn.execute(text("SELECT chips_in_play FROM sessions LIMIT 1"))
+            except Exception:
+                conn.execute(text("ALTER TABLE sessions ADD COLUMN chips_in_play INTEGER NOT NULL DEFAULT 0"))
+                conn.commit()
+
         # Migrate: create casino_balance_adjustments table if missing
         with engine.connect() as conn:
             try:
